@@ -1,77 +1,113 @@
 using System;
-using Unity.VisualScripting;
+using System.Collections.Generic;
 using UnityEngine;
 
-namespace DefaultNamespace
+public class Deformation : MonoBehaviour
 {
-    [Serializable]
-    public struct CarPart
-    {
-        public MeshFilter meshFilter;
-        public float health;
-        public bool isBreakable;
-        
-    }
     
-    public class Deformation : MonoBehaviour
+    float minCollisionImpulse = 10000f;
+    
+    [SerializeField] private List<MeshFilter> meshFilters;
+    [SerializeField] private float damageRadius;
+    [SerializeField] private float randomizeVertices = 1f;
+    [SerializeField] private float damageMultiplier = 1f;
+    
+    [SerializeField] private Transform middlePoint;
+    List<Vector3[]> originalMeshVerts = new List<Vector3[]>();
+
+
+    private void Start()
     {
-        public float deformRadius = .4f;
-        public float maxDerform = .3f;
-        public float damageFallOff = 1;
-        public float minDamage = 1;
-        public float damageMultiplier = 1;
-        public float maxDamage = 100;
-        
-        public CarPart[] meshList;
-        
-
-        private void OnCollisionEnter(Collision other)
+        for (int i = 0; i < meshFilters.Count; i++)
         {
-            print("Coll");
-            float collisionForce = other.impulse.magnitude;
+            originalMeshVerts.Add(meshFilters[i].mesh.vertices);
+        }
+    }
 
-            if (collisionForce > minDamage)
+    private void OnCollisionEnter(Collision other)
+    {
+        if (other.impulse.magnitude > minCollisionImpulse)
+        {
+            DeformMesh(other, other.impulse.magnitude);
+        }
+    }
+
+    private bool deforming = false;
+    private bool deformed = false;
+    [SerializeField] private float maximumDamage =.5f;
+
+    
+    List<Vector3[]> damagedMeshVerts = new List<Vector3[]>();
+    private void DeformMesh(Collision coll, float impulseMagnitude)
+    {
+        
+        
+        
+        damagedMeshVerts.Clear();
+        for (int i = 0; i < meshFilters.Count; i++)
+        { 
+            Vector3[] vertices = meshFilters[i].mesh.vertices;
+            foreach (var contactPoint in coll.contacts)
             {
-                Vector3 relativeVelocity = other.relativeVelocity;
+                Vector3 collDir = contactPoint.point - middlePoint.position;
+                //Vector3 collDir = -contactPoint.normal;
+                collDir = -collDir.normalized;
                 
-                Vector3 colPointToCenter = transform.position - other.contacts[0].point;
-                //see if teh collision is in the front of the car or sideways
-                float colStrength = relativeVelocity.magnitude * Vector3.Dot(colPointToCenter.normalized, other.contacts[0].normal);
+                Vector3 point = meshFilters[i].transform.InverseTransformPoint(contactPoint.point);
                 
-
-                for (int i = 0; i < meshList.Length; i++)
+                for (int j = 0; j < vertices.Length; j++)
                 {
-                    Vector3[] vertices = meshList[i].meshFilter.mesh.vertices;
                     
-                    for(int j=0;j<vertices.Length;j++)
+                    //i need to adjust for the scalse and rotation of the mesh .
+                    //THis caused me so much head ache
+                    Vector3 scaledVert = Vector3.Scale(vertices[j], meshFilters[i].transform.localScale);
+                    Vector3 vertWorldPos = meshFilters[i].transform.position + (meshFilters[i].transform.rotation * scaledVert);
+                    
+                    
+                    if ((point - vertWorldPos).sqrMagnitude < damageRadius * damageRadius)
                     {
+                        deforming = true;
+                        deformed = false;
                         
-                        //get the vertex in world space
-                        Vector3 pointColl = transform.InverseTransformPoint(other.contacts[0].point);
-                        float distance = Vector3.Distance(vertices[j], pointColl);
-                        if (distance < deformRadius)
-                        {
-                            print("vertex moved");
-                            float fallOff = 1 - (distance / deformRadius) *damageFallOff;
-                            
-                            
-                            
-                            Vector3 deform = new Vector3(
-                                Mathf.Clamp(pointColl.x * fallOff,0,maxDerform),
-                                Mathf.Clamp(pointColl.y * fallOff,0,maxDerform),
-                                Mathf.Clamp(pointColl.z * fallOff,0,maxDerform)
-                                );
+                        Vector3 randomizedVector =  new Vector3(UnityEngine.Random.Range(-randomizeVertices, randomizeVertices), UnityEngine.Random.Range(-randomizeVertices, randomizeVertices), UnityEngine.Random.Range(-randomizeVertices, randomizeVertices));
 
-                            vertices[j] -= deform * damageMultiplier ;
-                        }
-
+                        if(randomizeVertices > 0)
+                            collDir += randomizedVector/1000f;
+                        vertices[j] += transform.InverseTransformDirection(collDir) * impulseMagnitude * damageMultiplier/50f;
+                        
+                        if (maximumDamage > 0 && ((vertices[j] - originalMeshVerts[i][j]).magnitude) > maximumDamage)
+                            vertices[j] = originalMeshVerts[i][j] + (vertices[j] - originalMeshVerts[i][j]).normalized * (maximumDamage);
                         
                     }
-                    meshList[i].meshFilter.mesh.vertices = vertices;
-                    
                 }
                 
             }
+            damagedMeshVerts.Add(vertices);
+            
         }
+        Damage();
+
+    }
+    private void Damage()
+    {
+        for(int k = 0; k < meshFilters.Count; k++)
+        {
+            Vector3[] vertices = meshFilters[k].mesh.vertices;
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                    vertices[i] += (damagedMeshVerts[k][i] - vertices[i]);
+            }
+            meshFilters[k].mesh.vertices = vertices;
+            meshFilters[k].mesh.RecalculateNormals();
+            meshFilters[k].mesh.RecalculateBounds();
+            meshFilters[k].mesh.Optimize();
+            if (meshFilters[k].GetComponent<MeshCollider>() != null)
+            {
+                meshFilters[k].GetComponent<MeshCollider>().sharedMesh = meshFilters[k].mesh;
+                
+            }
+        }
+
+        
     }
 }
