@@ -15,10 +15,21 @@ public class DestructionV3 : MonoBehaviour
     [SerializeField] private float damageDisp = .5f; 
     [SerializeField] private Rigidbody rb;
     [SerializeField] private MeshCollider meshCollider;
-    // Start is called before the first frame update
+    
+    [SerializeField] private List<AudioSource> impactSounds;
+    
+    List<List<Vector3>> verticesList = new List<List<Vector3>>();
+    
     void Start()
     {
-
+        verticesList = new List<List<Vector3>>();
+        int i = 0;
+        foreach (var m in meshFilters)
+        {
+            verticesList.Add(new List<Vector3>());
+            m.mesh.GetVertices(verticesList[i]);
+            i++;
+        }
     }
 
     // Update is called once per frame
@@ -29,16 +40,13 @@ public class DestructionV3 : MonoBehaviour
 
     private void OnCollisionEnter(Collision other)
     {
-        Debug.Log("Collision: " + other.impulse);
         foreach (var contacts in other.contacts)
         {
-            Vector3 normal = contacts.normal;
-            Debug.DrawRay(contacts.point, normal, Color.red, 10f);
+            
 
             if (other.impulse.magnitude > damageImpRange.x)
             {
-                //loop through all the mesh filters
-                DeformMesh(other, contacts, normal);
+                DeformMesh(other, contacts, contacts.normal);
             }
 
             
@@ -47,14 +55,22 @@ public class DestructionV3 : MonoBehaviour
 
     private void DeformMesh(Collision other, ContactPoint contacts, Vector3 normal)
     {
-        foreach (var m in meshFilters)
+        var audioSource = impactSounds[UnityEngine.Random.Range(0, impactSounds.Count)];
+        audioSource.pitch = UnityEngine.Random.Range(.8f, 1.2f);
+        audioSource.volume = Mathf.Clamp01((other.impulse.magnitude - damageImpRange.x) /
+                                           (damageImpRange.y - damageImpRange.x)) + .3f;
+        audioSource.Play();
+        
+        
+        for(int m = 0; m < meshFilters.Count; m++)
         {
            bool didDamage = false;
-            
-            Vector3[] vertices = m.mesh.vertices;
-            for (int i = 0; i < vertices.Length; i++)
+
+           List<Vector3> vertices = verticesList[m];
+           
+            for (int i = 0; i < vertices.Count; i++)
             {
-                Vector3 worldPoint = m.transform.TransformPoint(vertices[i]);
+                Vector3 worldPoint = meshFilters[m].transform.TransformPoint(vertices[i]);
                 //Debug.DrawRay(worldPoint, Vector3.up, Color.green, 10f);
                 float dist = Vector3.Distance(worldPoint, contacts.point);
                 //Debug.Log(dist);
@@ -62,24 +78,24 @@ public class DestructionV3 : MonoBehaviour
                 if (dist < damageRadius)
                 {
                     
-                    if (!didDamage && m.TryGetComponent(out BreakableCarPart br ))
+                    if (!didDamage && meshFilters[m].TryGetComponent(out BreakableCarPart br ))
                     {
                         didDamage = true;
                         br.health -=
                             Mathf.Clamp01(other.impulse.magnitude - damageImpRange.x / (damageImpRange.y - damageImpRange.x)) * maxDamage;
                     }
                     //adjust for distance and fall off and impulse and impulse range
-                    vertices[i] += m.transform.InverseTransformDirection(normal) * 
+                    vertices[i] += meshFilters[m].transform.InverseTransformDirection(normal) * 
                                    (damageRadius - dist) * fallOffMul *
                                    Mathf.Clamp01((other.impulse.magnitude - damageImpRange.x) /
                                                  (damageImpRange.y - damageImpRange.x));
                 }
                         
             }
-            m.mesh.vertices = vertices;
+            meshFilters[m].mesh.SetVertices(vertices);
             //meshCollider.sharedMesh = m.mesh;
-            m.mesh.RecalculateNormals();
-            m.mesh.RecalculateBounds();
+            meshFilters[m].mesh.RecalculateNormals();
+            meshFilters[m].mesh.RecalculateBounds();
         }
     }
 }

@@ -10,11 +10,7 @@ public class CarController : MonoBehaviour
     public Wheel[] frontWheels;
     public Wheel[] rearWheels;
 
-    [SerializeField] private Camera _camera;
-
-    public float health = 1000;
-    public float collisionDamageMultiplier = .001f;
-
+  
     // Start is called before the first frame update
     void Start()
     {
